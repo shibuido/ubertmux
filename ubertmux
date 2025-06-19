@@ -50,6 +50,9 @@ TOPIC=""
 ACTION="default"
 SHOW_HELP=false
 TMUX_ARGS=()  # Array to store arguments to pass to tmux
+INTERACTIVE_SELECT=false
+INTERACTIVE_LIST=false
+USE_TEMPLATE=false
 
 show_help() {
     cat <<EOF
@@ -60,17 +63,23 @@ USAGE:
 
 OPTIONS:
     --topic <name>        Switch to or create a topic session
+    --select, -s          Interactive topic selection with fuzzy finder
     --list-topics         List all active topic sessions
+    --list-topics -i      Interactive topic browser
     --new-topic <name>    Create a new topic session
+    --new-topic --template Interactive topic creation with templates
     --help               Show this help message
     --                   Pass remaining arguments to tmux command
 
 EXAMPLES:
     ubertmux                         # Start/attach to default session
+    ubertmux --select               # Interactive topic selection
+    ubertmux -s                     # Same as --select (short form)
     ubertmux --topic sysadmin       # Switch to sysadmin topic
-    ubertmux --topic health         # Switch to health topic
     ubertmux --list-topics          # List all active topics
+    ubertmux --list-topics -i       # Interactive topic browser
     ubertmux --new-topic development # Create new development topic
+    ubertmux --new-topic --template  # Create topic from template
     ubertmux -- -d                  # Start detached session
     ubertmux --topic dev -- -x 120 -y 40  # Set terminal dimensions
 
@@ -89,14 +98,32 @@ while [[ $# -gt 0 ]]; do
             ACTION="topic"
             shift 2
             ;;
-        --list-topics)
-            ACTION="list"
+        --select|-s)
+            ACTION="select"
+            INTERACTIVE_SELECT=true
             shift
             ;;
+        --list-topics)
+            ACTION="list"
+            # Check if next argument is -i for interactive
+            if [[ $# -gt 1 && "$2" == "-i" ]]; then
+                INTERACTIVE_LIST=true
+                shift 2
+            else
+                shift
+            fi
+            ;;
         --new-topic)
-            TOPIC="$2"
-            ACTION="new"
-            shift 2
+            # Check if next argument is --template
+            if [[ $# -gt 1 && "$2" == "--template" ]]; then
+                USE_TEMPLATE=true
+                ACTION="new"
+                shift 2
+            else
+                TOPIC="$2"
+                ACTION="new"
+                shift 2
+            fi
             ;;
         --help)
             SHOW_HELP=true
@@ -177,12 +204,244 @@ list_topics() {
     INFO "💡 Use Ctrl+A + s within ubertmux to see all sessions."
 }
 
+# Interactive topic selection functions (adapted from tmuxa)
+#--------------------------------------------------
+
+# Detect available fuzzy finders
+has_fuzzy_finder() {
+    command -v sk >/dev/null 2>&1 || command -v fzf >/dev/null 2>&1
+}
+
+# Get all available topics with metadata
+get_topic_choices() {
+    local socket="$1"
+    local choices=()
+    
+    # Add option to create new topic
+    choices+=("+ Create New Topic")
+    
+    # Get existing sessions
+    local sessions_output
+    sessions_output=$(tmux -L "$socket" ls 2>/dev/null)
+    
+    if [[ -n "$sessions_output" ]]; then
+        while IFS= read -r line; do
+            local session_name windows_info
+            session_name=$(echo "$line" | cut -d: -f1)
+            windows_info=$(echo "$line" | cut -d: -f2-)
+            
+            if [[ "$session_name" == "ubertmux" ]]; then
+                choices+=("default ── $windows_info")
+            elif [[ "$session_name" =~ ^ubertmux-(.+)$ ]]; then
+                local topic_name="${BASH_REMATCH[1]}"
+                choices+=("$topic_name ── $windows_info")
+            fi
+        done <<< "$sessions_output"
+    fi
+    
+    printf '%s\n' "${choices[@]}"
+}
+
+# Interactive topic selection with fallback
+select_topic_interactive() {
+    local socket="$1"
+    local choices choice
+    
+    mapfile -t choices < <(get_topic_choices "$socket")
+    
+    if (( ${#choices[@]} <= 1 )); then
+        echo "No existing topics found. Will create new topic." >&2
+        return 1
+    fi
+    
+    if command -v sk >/dev/null 2>&1 && [[ -t 0 ]]; then
+        choice="$(printf '%s\n' "${choices[@]}" | sk --prompt='📋 Select topic ❯ ' 2>/dev/null)" || choice=""
+    elif command -v fzf >/dev/null 2>&1 && [[ -t 0 ]]; then
+        choice="$(printf '%s\n' "${choices[@]}" | fzf --prompt='📋 Select topic ❯ ' 2>/dev/null)" || choice=""
+    else
+        echo "📋 Select a topic:"
+        select choice in "${choices[@]}"; do
+            [[ -n $choice ]] && break
+            echo "Invalid selection. Please try again."
+        done
+    fi
+    
+    if [[ -z $choice ]]; then
+        echo "No topic selected." >&2
+        exit 3
+    fi
+    
+    # Parse selection
+    if [[ "$choice" == "+ Create New Topic" ]]; then
+        return 1  # Signal to create new topic
+    elif [[ "$choice" =~ ^([^─]+)[[:space:]]*── ]]; then
+        local selected_topic="${BASH_REMATCH[1]// /}"
+        if [[ "$selected_topic" == "default" ]]; then
+            echo ""  # Return empty for default
+        else
+            echo "$selected_topic"
+        fi
+    else
+        echo "Error parsing selection: $choice" >&2
+        exit 4
+    fi
+}
+
+# Topic templates system
+#--------------------------------------------------
+
+# Define common topic templates
+get_topic_templates() {
+    cat <<EOF
+sysadmin ── System administration, log monitoring, server management
+development ── Programming projects, code editing, git workflows  
+monitoring ── Health monitoring, metrics, dashboards
+research ── Documentation, web browsing, note-taking
+finance ── Financial tools, calculations, budget tracking
+testing ── QA, automated testing, debugging
+deployment ── CI/CD, infrastructure, releases
+personal ── Personal projects, learning, experiments
+EOF
+}
+
+# Interactive template selection
+select_template_interactive() {
+    local templates choice
+    
+    mapfile -t templates < <(get_topic_templates)
+    templates+=("custom ── Create custom topic (no template)")
+    
+    if command -v sk >/dev/null 2>&1 && [[ -t 0 ]]; then
+        choice="$(printf '%s\n' "${templates[@]}" | sk --prompt='🎯 Select template ❯ ' 2>/dev/null)" || choice=""
+    elif command -v fzf >/dev/null 2>&1 && [[ -t 0 ]]; then
+        choice="$(printf '%s\n' "${templates[@]}" | fzf --prompt='🎯 Select template ❯ ' 2>/dev/null)" || choice=""
+    else
+        echo "🎯 Select a template:"
+        select choice in "${templates[@]}"; do
+            [[ -n $choice ]] && break
+            echo "Invalid selection. Please try again."
+        done
+    fi
+    
+    if [[ -z $choice ]]; then
+        echo "No template selected." >&2
+        exit 3
+    fi
+    
+    # Parse template name
+    if [[ "$choice" =~ ^([^─]+)[[:space:]]*── ]]; then
+        local template_name="${BASH_REMATCH[1]// /}"
+        echo "$template_name"
+    else
+        echo "custom"
+    fi
+}
+
+# Handle interactive selection
+if [[ "$ACTION" == "select" ]]; then
+    UBERSOCK="ubertmux"
+    selected_topic=$(select_topic_interactive "$UBERSOCK")
+    
+    if [[ $? -eq 1 ]]; then
+        # User chose to create new topic or no topics available
+        if has_fuzzy_finder; then
+            # Use template selection if fuzzy finder available
+            template=$(select_template_interactive)
+            if [[ "$template" == "custom" ]]; then
+                echo -n "Enter custom topic name: "
+                read -r new_topic_name
+            else
+                new_topic_name="$template"
+            fi
+        else
+            echo -n "Enter new topic name: "
+            read -r new_topic_name
+        fi
+        
+        if [[ -n "$new_topic_name" ]]; then
+            validate_topic_name "$new_topic_name"
+            TOPIC="$new_topic_name"
+            ACTION="new"
+        else
+            echo "No topic name provided. Exiting."
+            exit 1
+        fi
+    else
+        TOPIC="$selected_topic"
+        ACTION="topic"
+    fi
+fi
+
 # Handle list-topics action
 if [[ "$ACTION" == "list" ]]; then
     # We need to check if ubertmux server is running first
     UBERSOCK="ubertmux"
-    list_topics "$UBERSOCK"
-    exit 0
+    
+    if [[ "$INTERACTIVE_LIST" == true ]]; then
+        # Interactive topic browser
+        selected_topic=$(select_topic_interactive "$UBERSOCK")
+        
+        if [[ $? -eq 1 ]]; then
+            # User chose to create new topic
+            if has_fuzzy_finder; then
+                # Use template selection if fuzzy finder available
+                template=$(select_template_interactive)
+                if [[ "$template" == "custom" ]]; then
+                    echo -n "Enter custom topic name: "
+                    read -r new_topic_name
+                else
+                    new_topic_name="$template"
+                fi
+            else
+                echo -n "Enter new topic name: "
+                read -r new_topic_name
+            fi
+            
+            if [[ -n "$new_topic_name" ]]; then
+                validate_topic_name "$new_topic_name"
+                TOPIC="$new_topic_name"
+                ACTION="new"
+                # Continue to session creation
+            else
+                echo "No topic name provided. Exiting."
+                exit 1
+            fi
+        else
+            TOPIC="$selected_topic"
+            ACTION="topic"
+            # Continue to session attachment
+        fi
+    else
+        # Plain list
+        list_topics "$UBERSOCK"
+        exit 0
+    fi
+fi
+
+# Handle template-based topic creation
+if [[ "$USE_TEMPLATE" == true ]]; then
+    if has_fuzzy_finder; then
+        template=$(select_template_interactive)
+        if [[ "$template" == "custom" ]]; then
+            echo -n "Enter custom topic name: "
+            read -r new_topic_name
+        else
+            new_topic_name="$template"
+        fi
+        
+        if [[ -n "$new_topic_name" ]]; then
+            validate_topic_name "$new_topic_name"
+            TOPIC="$new_topic_name"
+            ACTION="new"
+        else
+            echo "No topic name provided. Exiting."
+            exit 1
+        fi
+    else
+        echo "Template selection requires a fuzzy finder (sk or fzf)."
+        echo "Please install sk or fzf, or use: ubertmux --new-topic <name>"
+        exit 1
+    fi
 fi
 
 # Validate topic name if provided

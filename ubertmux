@@ -49,19 +49,21 @@ ERROR() { echo "ERROR: $*" >&2; }
 TOPIC=""
 ACTION="default"
 SHOW_HELP=false
+TMUX_ARGS=()  # Array to store arguments to pass to tmux
 
 show_help() {
     cat <<EOF
 ubertmux - Terminal multiplexer with topic-based session management
 
 USAGE:
-    ubertmux [OPTIONS]
+    ubertmux [OPTIONS] [-- TMUX_OPTIONS]
 
 OPTIONS:
     --topic <name>        Switch to or create a topic session
     --list-topics         List all active topic sessions
     --new-topic <name>    Create a new topic session
     --help               Show this help message
+    --                   Pass remaining arguments to tmux command
 
 EXAMPLES:
     ubertmux                         # Start/attach to default session
@@ -69,6 +71,8 @@ EXAMPLES:
     ubertmux --topic health         # Switch to health topic
     ubertmux --list-topics          # List all active topics
     ubertmux --new-topic development # Create new development topic
+    ubertmux -- -d                  # Start detached session
+    ubertmux --topic dev -- -x 120 -y 40  # Set terminal dimensions
 
 TOPIC ORGANIZATION:
     Each topic creates a separate tmux session within the ubertmux server.

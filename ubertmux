@@ -102,6 +102,11 @@ while [[ $# -gt 0 ]]; do
             SHOW_HELP=true
             shift
             ;;
+        --)                       # first “--” marks end of ubertmux options
+            shift                 # discard the “--”
+            TMUX_ARGS=("$@")      # copy the rest verbatim for tmux
+            break                 # stop further parsing
+            ;;
         *)
             ERROR "Unknown option: $1"
             echo "Use --help for usage information."
@@ -370,7 +375,7 @@ if [[ "$ACTION" == "new" ]]; then
     fi
 fi
 
-tmux -f "$UBERCONF" -L "$UBERSOCK" new-session -A -s "$SESSION_NAME"
+tmux -f "$UBERCONF" -L "$UBERSOCK" new-session -A -s "$SESSION_NAME" "${TMUX_ARGS[@]}"
 
 # If tmux exits unexpectedly, the script will end here.
 #

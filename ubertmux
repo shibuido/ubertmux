@@ -42,7 +42,144 @@ set -euo pipefail
 INFO()  { echo "INFO: $*"; }
 ERROR() { echo "ERROR: $*" >&2; }
 
+#--------------------------------------------------
+# Command line argument parsing
+#--------------------------------------------------
+
+TOPIC=""
+ACTION="default"
+SHOW_HELP=false
+
+show_help() {
+    cat <<EOF
+ubertmux - Terminal multiplexer with topic-based session management
+
+USAGE:
+    ubertmux [OPTIONS]
+
+OPTIONS:
+    --topic <name>        Switch to or create a topic session
+    --list-topics         List all active topic sessions
+    --new-topic <name>    Create a new topic session
+    --help               Show this help message
+
+EXAMPLES:
+    ubertmux                         # Start/attach to default session
+    ubertmux --topic sysadmin       # Switch to sysadmin topic
+    ubertmux --topic health         # Switch to health topic
+    ubertmux --list-topics          # List all active topics
+    ubertmux --new-topic development # Create new development topic
+
+TOPIC ORGANIZATION:
+    Each topic creates a separate tmux session within the ubertmux server.
+    Use Ctrl+A + s to see all sessions and switch between topics.
+    Topics maintain separate workspace environments and can have
+    nested tmux sessions without conflicts.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --topic)
+            TOPIC="$2"
+            ACTION="topic"
+            shift 2
+            ;;
+        --list-topics)
+            ACTION="list"
+            shift
+            ;;
+        --new-topic)
+            TOPIC="$2"
+            ACTION="new"
+            shift 2
+            ;;
+        --help)
+            SHOW_HELP=true
+            shift
+            ;;
+        *)
+            ERROR "Unknown option: $1"
+            echo "Use --help for usage information."
+            exit 1
+            ;;
+    esac
+done
+
+if [[ "$SHOW_HELP" == true ]]; then
+    show_help
+    exit 0
+fi
+
 INFO "🚀 Starting ubertmux setup..."
+
+#--------------------------------------------------
+# Topic management functions
+#--------------------------------------------------
+
+# Validate topic name (alphanumeric, dash, underscore only)
+validate_topic_name() {
+    local topic="$1"
+    if [[ ! "$topic" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        ERROR "Invalid topic name '$topic'. Use only letters, numbers, dashes, and underscores."
+        exit 1
+    fi
+}
+
+# Get session name for a topic
+get_session_name() {
+    local topic="$1"
+    if [[ -z "$topic" ]]; then
+        echo "ubertmux"
+    else
+        echo "ubertmux-$topic"
+    fi
+}
+
+# List all ubertmux topic sessions
+list_topics() {
+    local socket="$1"
+    INFO "📋 Active ubertmux topics:"
+    
+    local sessions_output
+    sessions_output=$(tmux -L "$socket" ls 2>/dev/null)
+    
+    if [[ -z "$sessions_output" ]]; then
+        INFO "No ubertmux sessions found."
+        echo
+        INFO "💡 Use 'ubertmux' to start the default session."
+        INFO "💡 Use 'ubertmux --topic <name>' to create a topic session."
+        return 0
+    fi
+    
+    echo "$sessions_output" | while IFS= read -r line; do
+        # Extract session name from tmux ls output
+        session_name=$(echo "$line" | cut -d: -f1)
+        if [[ "$session_name" == "ubertmux" ]]; then
+            echo "  • default (main session)"
+        elif [[ "$session_name" =~ ^ubertmux-(.+)$ ]]; then
+            topic_name="${BASH_REMATCH[1]}"
+            echo "  • $topic_name"
+        fi
+    done
+    
+    echo
+    INFO "💡 Use 'ubertmux --topic <name>' to switch to a topic."
+    INFO "💡 Use Ctrl+A + s within ubertmux to see all sessions."
+}
+
+# Handle list-topics action
+if [[ "$ACTION" == "list" ]]; then
+    # We need to check if ubertmux server is running first
+    UBERSOCK="ubertmux"
+    list_topics "$UBERSOCK"
+    exit 0
+fi
+
+# Validate topic name if provided
+if [[ -n "$TOPIC" ]]; then
+    validate_topic_name "$TOPIC"
+fi
 
 ############################################
 # 1. Ensure tmux is installed and runnable  #
@@ -93,12 +230,12 @@ INFO "ℹ Ubertmux socket name will be: $UBERSOCK"
 ###########################################################
 
 if [[ ! -f "$UBERCONF" ]]; then
-    INFO "✍ $UBERCONF not found. Creating a minimal ubertmux config..."
+    INFO "✍ $UBERCONF not found. Creating enhanced ubertmux config with topic support..."
 
     cat > "$UBERCONF" <<'EOF'
 # ~/.ubertmux.conf
 #
-# Minimal tmux config for ubertmux:
+# Enhanced tmux config for ubertmux with topic support:
 #   • Change prefix to Ctrl+A
 #   • Unbind old prefix Ctrl+B
 #   • Make sure “send-prefix” is available so nested tmux can receive Ctrl+A if needed.
@@ -107,11 +244,51 @@ set -g prefix C-a
 unbind C-b
 bind C-a send-prefix
 
+# Topic-aware status line configuration
+set -g status-left-length 30
+set -g status-right-length 50
+set -g status-left '#[fg=green]#(echo $USER)@#h#[default] '
+set -g status-right '#[fg=yellow]#{session_name}#[default] | %Y-%m-%d %H:%M'
+
+# Enhanced session navigation for topics
+bind-key s choose-tree -s -O name  # Better session switching
+bind-key S new-session             # Quick new session
+
+# Improved pane management
+bind-key | split-window -h         # Vertical split with |
+bind-key - split-window -v         # Horizontal split with -
+
+# Topic-specific window management
+bind-key w choose-tree -w          # Enhanced window selector
+bind-key C-w new-window            # Quick new window
+
+# Copy mode improvements (useful for log analysis across topics)
+setw -g mode-keys vi
+bind-key [ copy-mode
+bind-key ] paste-buffer
+
+# Mouse support for easier topic/pane switching
+set -g mouse on
+
+# Visual improvements for topic identification
+set -g window-status-current-style 'fg=white,bold,bg=red'
+set -g window-status-style 'fg=cyan'
+set -g status-style 'fg=white,bg=black'
+
+# Better session grouping display
+set -g status-justify centre
+
+# History and logging (useful for sysadmin topics)
+set -g history-limit 10000
+
+# Topic switching helper - show all sessions with descriptions
+bind-key ? run-shell 'tmux list-sessions -F "#{session_name}: #{session_windows} windows, #{session_attached} attached" | sort'
+
 # (You may add more ubertmux-only bindings here if desired,
-#  such as status-line color changes, pane-navigation shortcuts, etc.)
+#  such as additional topic-specific shortcuts, pane-navigation, etc.)
 EOF
 
-    INFO "✔ Created $UBERCONF."
+    INFO "✔ Created enhanced $UBERCONF with topic support."
 else
     INFO "✔ Found existing ubertmux config at $UBERCONF. Leaving it intact."
 fi
@@ -160,7 +337,36 @@ if [[ -n "$WORKSPACE" ]]; then
     cd "$WORKSPACE"
 fi
 
-tmux -f "$UBERCONF" -L "$UBERSOCK" new-session -A -s ubertmux
+# Determine session name based on topic
+SESSION_NAME=$(get_session_name "$TOPIC")
+
+if [[ -n "$TOPIC" ]]; then
+    INFO "🎯 Starting topic session: $TOPIC (session: $SESSION_NAME)"
+else
+    INFO "🎯 Starting default ubertmux session"
+fi
+
+# Handle topic-specific workspace support
+if [[ -n "$TOPIC" ]] && [[ -z "$WORKSPACE" ]]; then
+    # Check if there's a topic-specific workspace defined
+    TOPIC_WORKSPACE_VAR="UBERTMUX_WORKSPACE_$(echo "$TOPIC" | tr '[:lower:]' '[:upper:]' | tr '-' '_')"
+    TOPIC_WORKSPACE="${!TOPIC_WORKSPACE_VAR:-}"
+    if [[ -n "$TOPIC_WORKSPACE" ]] && [[ -d "$TOPIC_WORKSPACE" ]]; then
+        INFO "Using topic-specific workspace: $TOPIC_WORKSPACE"
+        cd "$TOPIC_WORKSPACE"
+    fi
+fi
+
+if [[ "$ACTION" == "new" ]]; then
+    # For new topics, check if session already exists
+    if tmux -L "$UBERSOCK" has-session -t "$SESSION_NAME" 2>/dev/null; then
+        INFO "Topic session '$TOPIC' already exists. Attaching to existing session."
+    else
+        INFO "Creating new topic session: $TOPIC"
+    fi
+fi
+
+tmux -f "$UBERCONF" -L "$UBERSOCK" new-session -A -s "$SESSION_NAME"
 
 # If tmux exits unexpectedly, the script will end here.
 #

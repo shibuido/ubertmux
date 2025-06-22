@@ -62,13 +62,13 @@ USAGE:
     ubertmux [OPTIONS] [-- TMUX_OPTIONS]
 
 OPTIONS:
-    --topic <name>        Switch to or create a topic session
-    --select, -s          Interactive topic selection with fuzzy finder
-    --list-topics         List all active topic sessions
-    --list-topics -i      Interactive topic browser
+    -t, --topic <name>    Switch to or create a topic session
+    -s, --select          Interactive topic selection with fuzzy finder
+    -l, --list-topics     List all active topic sessions
+    -l -i, --list-topics -i Interactive topic browser
     --new-topic <name>    Create a new topic session
     --new-topic --template Interactive topic creation with templates
-    --help               Show this help message
+    -h, --help           Show this help message
     --                   Pass remaining arguments to tmux command
 
 EXAMPLES:
@@ -76,8 +76,10 @@ EXAMPLES:
     ubertmux --select               # Interactive topic selection
     ubertmux -s                     # Same as --select (short form)
     ubertmux --topic sysadmin       # Switch to sysadmin topic
+    ubertmux -t sysadmin            # Same as --topic (short form)
     ubertmux --list-topics          # List all active topics
-    ubertmux --list-topics -i       # Interactive topic browser
+    ubertmux -l                     # Same as --list-topics (short form)
+    ubertmux -l -i                  # Interactive topic browser
     ubertmux --new-topic development # Create new development topic
     ubertmux --new-topic --template  # Create topic from template
     ubertmux -- -d                  # Start detached session
@@ -93,17 +95,17 @@ EOF
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --topic)
+        -t|--topic)
             TOPIC="$2"
             ACTION="topic"
             shift 2
             ;;
-        --select|-s)
+        -s|--select)
             ACTION="select"
             INTERACTIVE_SELECT=true
             shift
             ;;
-        --list-topics)
+        -l|--list-topics)
             ACTION="list"
             # Check if next argument is -i for interactive
             if [[ $# -gt 1 && "$2" == "-i" ]]; then
@@ -125,7 +127,7 @@ while [[ $# -gt 0 ]]; do
                 shift 2
             fi
             ;;
-        --help)
+        -h|--help)
             SHOW_HELP=true
             shift
             ;;

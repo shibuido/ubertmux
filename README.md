@@ -60,6 +60,10 @@ Each topic creates an isolated tmux session:
 
 **💡 [Use Cases](ubertmux.README.md#use-cases)** - Real-world workflow examples
 
+**🛠 [Tips & Tricks](TIPS.md)** - OSC-title propagation, smart zoom, window-switch chords that don't fight inner tmux
+
+**📝 [Extended example config](examples/ubertmux.conf.example)** - Drop-in `~/.ubertmux.conf` with everything from TIPS.md wired up
+
 ## Requirements
 
 - tmux (any recent version)

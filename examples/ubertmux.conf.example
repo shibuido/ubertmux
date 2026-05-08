@@ -1,0 +1,105 @@
+# ~/.ubertmux.conf — extended example
+#
+# A more featureful starting point than the auto-bootstrapped config that
+# `ubertmux` writes on first run. Drop into ~/.ubertmux.conf and edit the
+# clearly-marked sections to taste.
+#
+# Sections (search for "===" to jump):
+#   1. Prefix             (required — everything else is optional)
+#   2. OSC-title chain    (nested-tmux titles → ubertmux tab → terminal)
+#   3. Status line        (minimal, since the OUTER tmux usually shows time)
+#   4. Window switching   (Ctrl+h/l + Ctrl+Alt+y/o — picked to coexist
+#                          with inner tmux's Ctrl+Shift+arrows)
+#   5. Smart zoom         (prefix+g: display-panes, then auto-zoom)
+#   6. Workspace CWD      (new windows open in a chosen directory)
+#   7. Misc / quality-of-life
+#
+# See TIPS.md in this repo for explanations of the WHY behind each block.
+# ---------------------------------------------------------------------------
+
+# === 1. Prefix ===============================================================
+# Ctrl+A so it doesn't collide with inner tmux's default Ctrl+B.
+set -g prefix C-a
+unbind C-b
+bind C-a send-prefix
+
+
+# === 2. OSC-title propagation chain ==========================================
+# Goal: each ubertmux window tab AND the outer terminal tab show which
+# inner tmux session/window is focused, instead of "tmux" or a wrapper
+# command name.
+#
+# Three stages (full write-up in TIPS.md):
+#   (1) Inner tmux emits OSC 2 "session | window" to its PTY
+#       — requires `set -g set-titles on` + a set-titles-string in the
+#         inner ~/.tmux.conf, NOT here.
+#   (2) ubertmux captures that as pane_title (#T) automatically.
+#   (3) ubertmux re-emits #T upward AND uses #T as the window-tab name.
+set -g set-titles on
+set -g set-titles-string "#T"
+
+# Use inner-supplied #T as the window name; fall back to the running
+# command when there's no OSC title (e.g. plain bash pane).
+set -g automatic-rename-format '#{?#{==:#{pane_title},},#{pane_current_command},#{pane_title}}'
+
+
+# === 3. Status line ==========================================================
+# Outer terminal/tmux usually already shows the clock, so the inner
+# ubertmux status only shows the date. Swap to the commented line if you
+# want session name + clock instead.
+#set -g status-right '#S %y%m%d %H:%M'
+set -g status-right '%y%m%d'
+
+# High-contrast (e.g. eInk-friendly). Comment out if you prefer defaults.
+set -g status-style              fg=#ffffff,bg=#000000
+set -g window-status-style       fg=#ffffff,bg=#000000
+set -g window-status-current-style fg=#000000,bg=#ffffff
+
+
+# === 4. Window switching =====================================================
+# Ctrl+h / Ctrl+l — vim-style prev/next, no prefix needed.
+bind-key -n C-h previous-window
+bind-key -n C-l next-window
+
+# Ctrl+Alt+y / Ctrl+Alt+o — same prev/next, chosen because:
+#   * Ctrl+Shift+{Left,Right} is reserved for INNER tmux on many
+#     terminals (KDE Konsole especially); binding it at the ubertmux
+#     `-n` level would steal it before the inner tmux ever sees it.
+#   * Mnemonic: 'y' sits above 'h' and 'o' sits above 'l' on QWERTY,
+#     so they inherit the h=left/l=right semantics.
+#   * Confirmed working on KDE+Konsole and Android (Termux).
+bind-key -n C-M-y previous-window
+bind-key -n C-M-o next-window
+
+
+# === 5. Smart zoom (prefix+g) ================================================
+# If a pane is already zoomed: unzoom it.
+# Otherwise: show display-panes (numbered overlay) for 10 minutes and
+# zoom whichever pane the user picks.
+unbind-key g
+bind-key g \
+  if-shell -F '#{window_zoomed_flag}' 'resize-pane -Z' '' \; \
+  display-panes -d 600000 "select-pane -t '%%'; resize-pane -Z"
+
+# Default display-panes overlay duration (ms) for the unbound case.
+set -g display-panes-time 5000
+
+
+# === 6. Workspace CWD for new windows ========================================
+# Open new windows in a dedicated workspace directory. Replace the path
+# (or use $HOME / an env var) to taste.
+#bind c new-window -c "$HOME/w/ubertmux-w"
+
+
+# === 7. Misc / quality-of-life ===============================================
+# Big paste buffer — needed for image/Sixel pastes via chafa etc.
+# https://github.com/hpjansson/chafa/issues/327
+set -s input-buffer-size 16777216
+
+# True-color passthrough for terminals that support it.
+set-option -ga terminal-overrides ",xterm-256color:Tc"
+
+# Extended-keys (tmux ≥ 3.2) — lets terminals send modifier+key combos
+# unambiguously (Ctrl+Shift+letter, etc.).
+set -s extended-keys on
+set -as terminal-features 'xterm*:extkeys'

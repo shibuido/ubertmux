@@ -636,6 +636,30 @@ if [[ "$ACTION" == "new" ]]; then
     fi
 fi
 
+#--------------------------------------------------
+# Special bootstrap for the *default* ubertmux session
+#--------------------------------------------------
+# When creating (not attaching to) the default ubertmux session, name window 0
+# "adm" (admin pane). If $UBERTMUX_SCRIPT is set AND points to an executable,
+# run it there via `bash -c`, then drop into an interactive bash so the pane
+# stays alive after the script exits. Otherwise just a plain shell in :adm.
+#
+# For topic sessions, the original behavior is preserved.
+if [[ -z "$TOPIC" ]] && ! tmux -L "$UBERSOCK" has-session -t "$SESSION_NAME" 2>/dev/null; then
+    if [[ -n "${UBERTMUX_SCRIPT:-}" && -x "$UBERTMUX_SCRIPT" ]]; then
+        INFO "🎯 UBERTMUX_SCRIPT=$UBERTMUX_SCRIPT — will run in window :adm"
+        tmux -f "$UBERCONF" -L "$UBERSOCK" new-session -d -s "$SESSION_NAME" -n adm \
+             "bash -c $(printf '%q' "$UBERTMUX_SCRIPT") ; exec bash"
+    else
+        if [[ -n "${UBERTMUX_SCRIPT:-}" ]]; then
+            INFO "ℹ UBERTMUX_SCRIPT=$UBERTMUX_SCRIPT not executable — starting plain shell in :adm"
+        else
+            INFO "ℹ UBERTMUX_SCRIPT not set — starting plain shell in :adm"
+        fi
+        tmux -f "$UBERCONF" -L "$UBERSOCK" new-session -d -s "$SESSION_NAME" -n adm
+    fi
+fi
+
 tmux -f "$UBERCONF" -L "$UBERSOCK" new-session -A -s "$SESSION_NAME" "${TMUX_ARGS[@]}"
 
 # If tmux exits unexpectedly, the script will end here.

@@ -4,6 +4,9 @@
 # `ubertmux` writes on first run. Drop into ~/.ubertmux.conf and edit the
 # clearly-marked sections to taste.
 #
+# Upstream:  https://github.com/shibuido/ubertmux
+#            (this file: examples/ubertmux.conf.example)
+#
 # Sections (search for "===" to jump):
 #   1. Prefix             (required — everything else is optional)
 #   2. OSC-title chain    (nested-tmux titles → ubertmux tab → terminal)
@@ -15,6 +18,22 @@
 #   7. Misc / quality-of-life
 #
 # See TIPS.md in this repo for explanations of the WHY behind each block.
+#
+# --- For agents / maintainers: track drift from upstream ---------------------
+# This file is meant to be DEPLOYED as ~/.ubertmux.conf (often symlinked from a
+# personal dotfiles repo via GNU stow). Once deployed it can drift from upstream
+# as either side evolves. When reconciling, preserve local edits — do NOT
+# blind-overwrite:
+#
+#   1. DIFF the deployed copy against upstream raw:
+#        curl -fsSL https://raw.githubusercontent.com/shibuido/ubertmux/master/examples/ubertmux.conf.example \
+#          | diff -u - ~/.ubertmux.conf
+#   2. ON DRIFT, reconcile on a NEW BRANCH locally: drop the upstream version
+#        into your dotfiles repo on a fresh branch and MERGE it against your
+#        local customizations (eInk colors, keybindings, ...) — branch + merge,
+#        never overwrite.
+#   3. PUSH IT BACK: when a local improvement is generic (not personal taste),
+#        open a PR to shibuido/ubertmux so everyone benefits.
 # ---------------------------------------------------------------------------
 
 # === 1. Prefix ===============================================================

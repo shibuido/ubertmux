@@ -24,10 +24,10 @@
 #   3. If the config doesn’t exist, create a minimal one that rebinds prefix to Ctrl+A.
 #   4. Check if a tmux server is already listening on our ubertmux socket:
 #        • Check if ubertmux server is already running on the named socket.
-#   5. Launch tmux with “-f $UBERCONF -L $UBERSOCK new-session -A -s ubertmux”:
+#   5. Launch tmux with “-f $UBERCONF -L $UBERSOCK new-session -A -s u0”:
 #        • “-f” ensures that this new server will load our custom config.
 #        • "-L" creates a named socket in tmux's managed directory, guaranteeing isolation from the default server.
-#        • “new-session -A -s ubertmux” creates or attaches to a session named “ubertmux” on that socket.
+#        • “new-session -A -s u0” creates or attaches to the outer session named “u0” on that socket.
 #
 # By the end, you’ll have:
 #   • An “outer” tmux server (ubertmux) listening on a dedicated socket, using prefix Ctrl+A.
@@ -168,7 +168,12 @@ validate_topic_name() {
 get_session_name() {
     local topic="$1"
     if [[ -z "$topic" ]]; then
-        echo "ubertmux"
+        # The default OUTER viewing session is named "u0", not "ubertmux".
+        # Because new-session uses -A (create-if-missing), a name that does not
+        # match the live session SILENTLY CREATES AN EMPTY ONE instead of failing
+        # -- which is exactly what happened after the 2026-08-17 reboot.
+        # Override with UBERTMUX_DEFAULT_SESSION if you renamed it.
+        echo "${UBERTMUX_DEFAULT_SESSION:-u0}"
     else
         echo "ubertmux-$topic"
     fi
